@@ -8,9 +8,9 @@ import os.path
 
 from pelican.tests.support import unittest, get_settings
 
-from pelican.contents import Page, Article, Static, URLWrapper
+from pelican.contents import Page, Article, Static, URLWrapper, Author, Category
 from pelican.settings import DEFAULT_CONFIG
-from pelican.utils import path_to_url, truncate_html_words, SafeDatetime
+from pelican.utils import path_to_url, truncate_html_words, SafeDatetime, posix_join
 from pelican.signals import content_object_init
 from jinja2.utils import generate_lorem_ipsum
 
@@ -33,7 +33,7 @@ class TestPage(unittest.TestCase):
             'metadata': {
                 'summary': TEST_SUMMARY,
                 'title': 'foo bar',
-                'author': 'Blogger',
+                'author': Author('Blogger', DEFAULT_CONFIG),
             },
             'source_path': '/path/to/file/foo.ext'
         }
@@ -212,17 +212,20 @@ class TestPage(unittest.TestCase):
                            '<a href="|tag|tagname">link</a>')
         page = Page(**args)
         content = page.get_content('http://notmyidea.org')
-        self.assertEqual(content, ('A simple test, with a '
-                                   '<a href="tag/tagname.html">link</a>'))
+        self.assertEqual(
+            content,
+            ('A simple test, with a '
+             '<a href="http://notmyidea.org/tag/tagname.html">link</a>'))
 
         # Category
         args['content'] = ('A simple test, with a '
                            '<a href="|category|category">link</a>')
         page = Page(**args)
         content = page.get_content('http://notmyidea.org')
-        self.assertEqual(content,
-                         ('A simple test, with a '
-                          '<a href="category/category.html">link</a>'))
+        self.assertEqual(
+            content,
+            ('A simple test, with a '
+             '<a href="http://notmyidea.org/category/category.html">link</a>'))
 
     def test_intrasite_link(self):
         # type does not take unicode in PY2 and bytes in PY3, which in
@@ -371,7 +374,8 @@ class TestPage(unittest.TestCase):
         content = Page(**args)
         assert content.authors == [content.author]
         args['metadata'].pop('author')
-        args['metadata']['authors'] = ['First Author', 'Second Author']
+        args['metadata']['authors'] = [Author('First Author', DEFAULT_CONFIG),
+                                       Author('Second Author', DEFAULT_CONFIG)]
         content = Page(**args)
         assert content.authors
         assert content.author == content.authors[0]
@@ -393,8 +397,8 @@ class TestArticle(TestPage):
         settings['ARTICLE_URL'] = '{author}/{category}/{slug}/'
         settings['ARTICLE_SAVE_AS'] = '{author}/{category}/{slug}/index.html'
         article_kwargs = self._copy_page_kwargs()
-        article_kwargs['metadata']['author'] = "O'Brien"
-        article_kwargs['metadata']['category'] = 'C# & stuff'
+        article_kwargs['metadata']['author'] = Author("O'Brien", settings)
+        article_kwargs['metadata']['category'] = Category('C# & stuff', settings)
         article_kwargs['metadata']['title'] = 'fnord'
         article_kwargs['settings'] = settings
         article = Article(**article_kwargs)
@@ -414,7 +418,7 @@ class TestStatic(unittest.TestCase):
         self.context = self.settings.copy()
 
         self.static = Static(content=None, metadata={}, settings=self.settings,
-            source_path=os.path.join('dir', 'foo.jpg'), context=self.context)
+            source_path=posix_join('dir', 'foo.jpg'), context=self.context)
 
         self.context['filenames'] = {self.static.source_path: self.static}
 
@@ -542,6 +546,31 @@ class TestStatic(unittest.TestCase):
         expected_save_as = os.path.join('outpages', 'foo.jpg')
         self.assertEqual(self.static.save_as, expected_save_as)
         self.assertEqual(self.static.url, path_to_url(expected_save_as))
+
+    def test_tag_link_syntax(self):
+        "{tag} link syntax triggers url replacement."
+
+        html = '<a href="{tag}foo">link</a>'
+        page = Page(
+            content=html,
+            metadata={'title': 'fakepage'}, settings=self.settings,
+            source_path=os.path.join('dir', 'otherdir', 'fakepage.md'),
+            context=self.context)
+        content = page.get_content('')
+
+        self.assertNotEqual(content, html)
+
+    def test_category_link_syntax(self):
+        "{category} link syntax triggers url replacement."
+
+        html = '<a href="{category}foo">link</a>'
+        page = Page(content=html,
+            metadata={'title': 'fakepage'}, settings=self.settings,
+            source_path=os.path.join('dir', 'otherdir', 'fakepage.md'),
+            context=self.context)
+        content = page.get_content('')
+
+        self.assertNotEqual(content, html)
 
 
 class TestURLWrapper(unittest.TestCase):

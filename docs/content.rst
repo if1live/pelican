@@ -91,7 +91,7 @@ via the ``keywords`` metadata, as is standard in HTML. The two can be used
 interchangeably.
 
 Note that, aside from the title, none of this article metadata is mandatory:
-if the date is not specified and ``DEFAULT_DATE`` is set to ``fs``, Pelican
+if the date is not specified and ``DEFAULT_DATE`` is set to ``'fs'``, Pelican
 will rely on the file's "mtime" timestamp, and the category can be determined
 by the directory in which the file resides. For example, a file located at
 ``python/foobar/myfoobar.rst`` will have a category of ``foobar``. If you would
@@ -157,6 +157,9 @@ the other content will be placed after site generation).
 
 To link to internal content (files in the ``content`` directory), use the
 following syntax for the link target: ``{filename}path/to/file``
+Note: forward slashes, ``/``,
+are the required path separator in the ``{filename}`` directive
+on all operating systems, including Windows.
 
 For example, a Pelican project might be structured like this::
 
@@ -497,6 +500,16 @@ If you want to publish an article as a draft (for friends to review before
 publishing, for example), you can add a ``Status: draft`` attribute to its
 metadata. That article will then be output to the ``drafts`` folder and not
 listed on the index page nor on any category or tag page.
+
+If your articles should be automatically published as a draft (to not accidentally
+publish an article before it is finished) include the status in the ``DEFAULT_METADATA``::
+
+    DEFAULT_METADATA = {
+        'status': 'draft',
+    }
+
+To publish a post when the default status is ``draft``, update the post's
+metadata to include ``Status: published``.
 
 .. _W3C ISO 8601: http://www.w3.org/TR/NOTE-datetime
 .. _AsciiDoc: http://www.methods.co.nz/asciidoc/

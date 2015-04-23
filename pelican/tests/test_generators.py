@@ -7,7 +7,6 @@ try:
     from unittest.mock import MagicMock
 except ImportError:
     from mock import MagicMock
-from operator import itemgetter
 from shutil import rmtree
 from tempfile import mkdtemp
 
@@ -35,11 +34,16 @@ class TestGenerator(unittest.TestCase):
 
 
     def test_include_path(self):
+        self.settings['IGNORE_FILES'] = {'ignored1.rst', 'ignored2.rst'}
+
         filename = os.path.join(CUR_DIR, 'content', 'article.rst')
         include_path = self.generator._include_path
         self.assertTrue(include_path(filename))
         self.assertTrue(include_path(filename, extensions=('rst',)))
         self.assertFalse(include_path(filename, extensions=('md',)))
+
+        ignored_file = os.path.join(CUR_DIR, 'content', 'ignored1.rst')
+        self.assertFalse(include_path(ignored_file))
 
     def test_get_files_exclude(self):
         """Test that Generator.get_files() properly excludes directories.
@@ -51,6 +55,13 @@ class TestGenerator(unittest.TestCase):
             theme=self.settings['THEME'], output_path=None)
 
         filepaths = generator.get_files(paths=['maindir'])
+        found_files = {os.path.basename(f) for f in filepaths}
+        expected_files = {'maindir.md', 'subdir.md'}
+        self.assertFalse(expected_files - found_files,
+            "get_files() failed to find one or more files")
+
+        # Test string as `paths` argument rather than list
+        filepaths = generator.get_files(paths='maindir')
         found_files = {os.path.basename(f) for f in filepaths}
         expected_files = {'maindir.md', 'subdir.md'}
         self.assertFalse(expected_files - found_files,
@@ -318,6 +329,14 @@ class TestArticlesGenerator(unittest.TestCase):
                                  settings,
                                  blog=True, dates=dates)
 
+    def test_nonexistent_template(self):
+        """Attempt to load a non-existent template"""
+        settings = get_settings(filenames={})
+        generator = ArticlesGenerator(
+            context=settings, settings=settings,
+            path=None, theme=settings['THEME'], output_path=None)
+        self.assertRaises(Exception, generator.get_template, "not_a_template")
+
     def test_generate_authors(self):
         """Check authors generation."""
         authors = [author.name for author, _ in self.generator.authors]
@@ -394,6 +413,38 @@ class TestArticlesGenerator(unittest.TestCase):
         generator.generate_context()
         generator.readers.read_file.assert_called_count == orig_call_count
 
+    def test_standard_metadata_in_default_metadata(self):
+        settings = get_settings(filenames={})
+        settings['CACHE_CONTENT'] = False
+        settings['DEFAULT_CATEGORY'] = 'Default'
+        settings['DEFAULT_DATE'] = (1970, 1, 1)
+        settings['DEFAULT_METADATA'] = (('author', 'Blogger'),
+                                        # category will be ignored in favor of
+                                        # DEFAULT_CATEGORY
+                                        ('category', 'Random'),
+                                        ('tags', 'general, untagged'))
+        generator = ArticlesGenerator(
+            context=settings.copy(), settings=settings,
+            path=CONTENT_DIR, theme=settings['THEME'], output_path=None)
+        generator.generate_context()
+
+        authors = sorted([author.name for author, _ in generator.authors])
+        authors_expected = sorted(['Alexis Métaireau', 'Blogger',
+                                   'First Author', 'Second Author'])
+        self.assertEqual(authors, authors_expected)
+
+        categories = sorted([category.name
+                             for category, _ in generator.categories])
+        categories_expected = [
+            sorted(['Default', 'TestCategory', 'yeah', 'test', '指導書']),
+            sorted(['Default', 'TestCategory', 'Yeah', 'test', '指導書'])]
+        self.assertIn(categories, categories_expected)
+
+        tags = sorted([tag.name for tag in generator.tags])
+        tags_expected = sorted(['bar', 'foo', 'foobar', 'general', 'untagged',
+                                'パイソン', 'マック'])
+        self.assertEqual(tags, tags_expected)
+
 
 class TestPageGenerator(unittest.TestCase):
     # Note: Every time you want to test for a new field; Make sure the test
@@ -428,6 +479,7 @@ class TestPageGenerator(unittest.TestCase):
             ['This is a markdown test page', 'published', 'page'],
             ['This is a test page with a preset template', 'published',
              'custom'],
+            ['Page with a bunch of links', 'published', 'page'],
             ['A Page (Test) for sorting', 'published', 'page'],
         ]
         hidden_pages_expected = [
@@ -517,6 +569,7 @@ class TestPageGenerator(unittest.TestCase):
             ['This is a test page', 'published', 'page'],
             ['This is a markdown test page', 'published', 'page'],
             ['A Page (Test) for sorting', 'published', 'page'],
+            ['Page with a bunch of links', 'published', 'page'],
             ['This is a test page with a preset template', 'published',
              'custom'],
         ]
@@ -530,6 +583,7 @@ class TestPageGenerator(unittest.TestCase):
         # sort by title
         pages_expected_sorted_by_title = [
             ['A Page (Test) for sorting', 'published', 'page'],
+            ['Page with a bunch of links', 'published', 'page'],
             ['This is a markdown test page', 'published', 'page'],
             ['This is a test page', 'published', 'page'],
             ['This is a test page with a preset template', 'published',
@@ -542,6 +596,26 @@ class TestPageGenerator(unittest.TestCase):
         generator.generate_context()
         pages = self.distill_pages(generator.pages)
         self.assertEqual(pages_expected_sorted_by_title, pages)
+
+    def test_tag_and_category_links_on_generated_pages(self):
+        """
+        Test to ensure links of the form {tag}tagname and {category}catname
+        are generated correctly on pages
+        """
+        settings = get_settings(filenames={})
+        settings['PAGE_PATHS'] = ['TestPages'] # relative to CUR_DIR
+        settings['CACHE_PATH'] = self.temp_cache
+        settings['DEFAULT_DATE'] = (1970, 1, 1)
+
+        generator = PagesGenerator(
+            context=settings.copy(), settings=settings,
+            path=CUR_DIR, theme=settings['THEME'], output_path=None)
+        generator.generate_context()
+        pages_by_title = {p.title: p.content for p in generator.pages}
+
+        test_content = pages_by_title['Page with a bunch of links']
+        self.assertIn('<a href="/category/yeah.html">', test_content)
+        self.assertIn('<a href="/tag/matsuku.html">', test_content)
 
 
 class TestTemplatePagesGenerator(unittest.TestCase):
